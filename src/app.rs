@@ -1,12 +1,12 @@
 use crossterm::event::KeyEvent;
-use ratatui::prelude::Rect;
+use ratatui::prelude::*;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 
 use crate::{
     action::Action,
-    components::{Component, fps::FpsCounter, home::Home},
+    components::{Component, fps::FpsCounter, header::Header, home::Home},
     config::Config,
     kafka,
     tui::{Event, Tui},
@@ -14,6 +14,7 @@ use crate::{
 
 pub struct App {
     config: Config,
+    header: Header,
     tick_rate: f64,
     frame_rate: f64,
     components: Vec<Box<dyn Component>>,
@@ -37,6 +38,7 @@ impl App {
         Ok(Self {
             tick_rate,
             frame_rate,
+            header: Header,
             components: vec![Box::new(Home::new()), Box::new(FpsCounter::default())],
             should_quit: false,
             should_suspend: false,
@@ -57,12 +59,18 @@ impl App {
 
         for component in self.components.iter_mut() {
             component.register_action_handler(self.action_tx.clone())?;
+            self.header
+                .register_action_handler(self.action_tx.clone())?;
         }
         for component in self.components.iter_mut() {
             component.register_config_handler(self.config.clone())?;
+            self.header
+                .register_action_handler(self.action_tx.clone())?;
         }
         for component in self.components.iter_mut() {
             component.init(tui.size()?)?;
+            self.header
+                .register_action_handler(self.action_tx.clone())?;
         }
 
         let action_tx = self.action_tx.clone();
@@ -180,8 +188,16 @@ impl App {
 
     fn render(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
         tui.draw(|frame| {
+            let [header_area, body_area] = Layout::vertical([
+                Constraint::Length(9), // header row count from the mockup — tune to taste
+                Constraint::Min(0),
+            ])
+            .areas(frame.area());
+
+            let _ = self.header.draw(frame, header_area);
+
             for component in self.components.iter_mut() {
-                if let Err(err) = component.draw(frame, frame.area()) {
+                if let Err(err) = component.draw(frame, body_area) {
                     let _ = self
                         .action_tx
                         .send(Action::Error(format!("Failed to draw: {:?}", err)));
