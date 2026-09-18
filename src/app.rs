@@ -66,6 +66,7 @@ impl App {
         }
 
         let action_tx = self.action_tx.clone();
+        let kafka_action_tx = action_tx.clone();
         tokio::spawn(async move {
             let cfg = kafka::admin_client_config();
             let result = async {
@@ -74,8 +75,8 @@ impl App {
             }
             .await;
             match result {
-                Ok(topics) => action_tx.send(Action::TopicsLoaded),
-                Err(err) => action_tx.send(Action::Error(err.to_string())),
+                Ok(topics) => kafka_action_tx.send(Action::TopicsLoaded(topics)),
+                Err(err) => kafka_action_tx.send(Action::Error(err.to_string())),
             }
         });
         loop {

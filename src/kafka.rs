@@ -17,6 +17,7 @@ pub fn admin_client_config() -> KafkaConfig {
     KafkaConfig { config }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Topic {
     pub name: String,
     pub partition_count: usize,

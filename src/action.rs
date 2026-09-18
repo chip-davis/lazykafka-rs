@@ -12,5 +12,5 @@ pub enum Action {
     ClearScreen,
     Error(String),
     Help,
-    TopicsLoaded,
+    TopicsLoaded(Vec<crate::kafka::Topic>),
 }

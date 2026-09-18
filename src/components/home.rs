@@ -2,12 +2,13 @@ use ratatui::{prelude::*, widgets::*};
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
-use crate::{action::Action, config::Config};
+use crate::{action::Action, config::Config, kafka};
 
 #[derive(Default)]
 pub struct Home {
     command_tx: Option<UnboundedSender<Action>>,
     config: Config,
+    topics: Vec<kafka::Topic>,
 }
 
 impl Home {
@@ -35,13 +36,20 @@ impl Component for Home {
             Action::Render => {
                 // add any logic here that should run on every render
             }
+            Action::TopicsLoaded(topics) => {
+                self.topics = topics;
+            }
             _ => {}
         }
         Ok(None)
     }
 
     fn draw(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
-        frame.render_widget(Paragraph::new("hello world"), area);
+        let items = self
+            .topics
+            .iter()
+            .map(|t| format!("{} ({} partitions)", t.name, t.partition_count));
+        frame.render_widget(List::new(items), area);
         Ok(())
     }
 }
