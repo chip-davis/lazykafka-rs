@@ -1,4 +1,4 @@
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::prelude::*;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -6,11 +6,15 @@ use tracing::{debug, info};
 
 use crate::{
     action::Action,
-    components::{Component, fps::FpsCounter, header::Header, home::Home},
+    components::{Component, fps::FpsCounter, header::Header, home::Home, partitions::Partitions},
     config::Config,
     kafka,
     tui::{Event, Tui},
 };
+
+// components[0] = Home (topics), components[1] = Partitions — the navigable miller columns.
+// FpsCounter (components[2]) is an overlay, never focused.
+const NAV_COLUMNS: usize = 2;
 
 pub struct App {
     config: Config,
@@ -18,6 +22,7 @@ pub struct App {
     tick_rate: f64,
     frame_rate: f64,
     components: Vec<Box<dyn Component>>,
+    focus: usize,
     should_quit: bool,
     should_suspend: bool,
     mode: Mode,
@@ -39,7 +44,12 @@ impl App {
             tick_rate,
             frame_rate,
             header: Header,
-            components: vec![Box::new(Home::new()), Box::new(FpsCounter::default())],
+            components: vec![
+                Box::new(Home::new()),
+                Box::new(Partitions::new()),
+                Box::new(FpsCounter::default()),
+            ],
+            focus: 0,
             should_quit: false,
             should_suspend: false,
             config: Config::new()?,
@@ -72,6 +82,7 @@ impl App {
             self.header
                 .register_action_handler(self.action_tx.clone())?;
         }
+        self.components[self.focus].set_focused(true);
 
         let action_tx = self.action_tx.clone();
         let kafka_action_tx = action_tx.clone();
@@ -118,9 +129,34 @@ impl App {
             Event::Key(key) => self.handle_key_event(key)?,
             _ => {}
         }
-        for component in self.components.iter_mut() {
-            if let Some(action) = component.handle_events(Some(event.clone()))? {
-                action_tx.send(action)?;
+
+        if let Event::Key(key) = event {
+            match key.code {
+                KeyCode::Right | KeyCode::Char('l') => {
+                    self.components[self.focus].set_focused(false);
+                    self.focus = (self.focus + 1).min(NAV_COLUMNS - 1);
+                    self.components[self.focus].set_focused(true);
+                }
+                KeyCode::Left | KeyCode::Char('h') => {
+                    self.components[self.focus].set_focused(false);
+                    self.focus = self.focus.saturating_sub(1);
+                    self.components[self.focus].set_focused(true);
+                }
+                // only the focused column gets raw key events (j/k list-nav etc.) —
+                // otherwise every column would scroll together on every keypress
+                _ => {
+                    if let Some(component) = self.components.get_mut(self.focus)
+                        && let Some(action) = component.handle_events(Some(event))?
+                    {
+                        action_tx.send(action)?;
+                    }
+                }
+            }
+        } else {
+            for component in self.components.iter_mut() {
+                if let Some(action) = component.handle_events(Some(event.clone()))? {
+                    action_tx.send(action)?;
+                }
             }
         }
         Ok(())
@@ -169,6 +205,22 @@ impl App {
                 Action::Error(ref err) => {
                     tracing::error!(?err)
                 }
+                Action::TopicSelected(ref topic) => {
+                    let tx = self.action_tx.clone();
+                    let topic = topic.clone();
+                    tokio::spawn(async move {
+                        let cfg = kafka::admin_client_config();
+                        let result = async {
+                            let consumer = kafka::build_consumer(&cfg)?;
+                            kafka::list_partitions(&consumer, &topic).await
+                        }
+                        .await;
+                        match result {
+                            Ok(partitions) => tx.send(Action::PartitionsLoaded(topic, partitions)),
+                            Err(err) => tx.send(Action::Error(err.to_string())),
+                        }
+                    });
+                }
                 _ => {}
             }
             for component in self.components.iter_mut() {
@@ -196,8 +248,17 @@ impl App {
 
             let _ = self.header.draw(frame, header_area);
 
-            for component in self.components.iter_mut() {
-                if let Err(err) = component.draw(frame, body_area) {
+            let [topics_area, partitions_area, rest_area] = Layout::horizontal([
+                Constraint::Length(30),
+                Constraint::Length(30),
+                Constraint::Fill(1),
+            ])
+            .areas(body_area);
+            // components[0] = Home (topics), [1] = Partitions, [2] = FpsCounter (overlay, wants full body)
+            let areas = [topics_area, partitions_area, rest_area];
+
+            for (component, area) in self.components.iter_mut().zip(areas) {
+                if let Err(err) = component.draw(frame, area) {
                     let _ = self
                         .action_tx
                         .send(Action::Error(format!("Failed to draw: {:?}", err)));

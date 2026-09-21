@@ -11,11 +11,17 @@ pub struct Home {
     config: Config,
     topics: Vec<kafka::Topic>,
     state: ListState,
+    focused: bool,
 }
 
 impl Home {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn emit_selection(&self) -> Option<Action> {
+        let topic = self.topics.get(self.state.selected()?)?;
+        Some(Action::TopicSelected(topic.name.clone()))
     }
 }
 
@@ -27,9 +33,13 @@ impl Component for Home {
         match key.code {
             KeyCode::Down | KeyCode::Char('j') => self.state.select_next(),
             KeyCode::Up | KeyCode::Char('k') => self.state.select_previous(),
-            _ => {}
+            _ => return Ok(None),
         }
-        Ok(None)
+        Ok(self.emit_selection())
+    }
+
+    fn set_focused(&mut self, focused: bool) {
+        self.focused = focused;
     }
 
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> color_eyre::Result<()> {
@@ -55,6 +65,7 @@ impl Component for Home {
                 if self.state.selected().is_none() && !self.topics.is_empty() {
                     self.state.select_first();
                 }
+                return Ok(self.emit_selection());
             }
             _ => {}
         }
@@ -65,10 +76,14 @@ impl Component for Home {
         let dim_bg = Style::new()
             .bg(Color::Rgb(0x24, 0x1c, 0x1a))
             .fg(Color::Rgb(0x8a, 0x80, 0x7d));
-        let sel_style = Style::new()
-            .bg(Color::Rgb(0x3a, 0x2a, 0x26))
-            .fg(Color::Rgb(0xe8, 0xe4, 0xe2))
-            .add_modifier(Modifier::BOLD);
+        let sel_style = if self.focused {
+            Style::new()
+                .bg(Color::Rgb(0x3a, 0x2a, 0x26))
+                .fg(Color::Rgb(0xe8, 0xe4, 0xe2))
+                .add_modifier(Modifier::BOLD)
+        } else {
+            dim_bg
+        };
 
         let width = self.topics.iter().map(|t| t.name.len()).max().unwrap_or(10) as u16 + 8; // +8 for " NNp" suffix/padding
         let [col, _rest] =

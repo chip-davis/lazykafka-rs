@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use strum::Display;
 
+use crate::kafka;
+
 #[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize)]
 pub enum Action {
     Tick,
@@ -13,4 +15,6 @@ pub enum Action {
     Error(String),
     Help,
     TopicsLoaded(Vec<crate::kafka::Topic>),
+    TopicSelected(String),
+    PartitionsLoaded(String, Vec<kafka::Partition>),
 }

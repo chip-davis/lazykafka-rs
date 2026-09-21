@@ -9,6 +9,7 @@ use crate::{action::Action, config::Config, tui::Event};
 pub mod fps;
 pub mod header;
 pub mod home;
+pub mod partitions;
 
 /// `Component` is a trait that represents a visual and interactive element of the user interface.
 ///
@@ -53,6 +54,10 @@ pub trait Component {
     fn init(&mut self, area: Size) -> color_eyre::Result<()> {
         let _ = area; // to appease clippy
         Ok(())
+    }
+    /// Bright selection highlight when true, dimmed when false.
+    fn set_focused(&mut self, focused: bool) {
+        let _ = focused;
     }
     /// Handle incoming events and produce actions if necessary.
     ///
