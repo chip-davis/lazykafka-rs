@@ -15,9 +15,7 @@ use crate::{
     tui::{Event, Tui},
 };
 
-// components[0] = Home (topics), [1] = Partitions, [2] = Records — the navigable miller columns.
-// FpsCounter (components[3]) is an overlay, never focused.
-const NAV_COLUMNS: usize = 3;
+const NAV_COLUMNS: usize = 4;
 
 pub struct App {
     config: Config,

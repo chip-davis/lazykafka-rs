@@ -348,7 +348,16 @@ impl Component for Records {
                 .iter()
                 .skip(self.off)
                 .take(height)
-                .map(|r| format!("p{} @{} {}", r.partition, r.offset, r.payload))
+                .map(|r| {
+                    let mut line = format!("p{} @{} ", r.partition, r.offset);
+                    line.extend(
+                        r.payload
+                            .chars()
+                            .take(200)
+                            .map(|c| if c.is_control() { ' ' } else { c }),
+                    );
+                    line
+                })
         });
         let mut window_state = ListState::default();
         if len > 0 {
