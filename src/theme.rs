@@ -11,12 +11,11 @@ pub fn dim() -> Style {
     Style::new().bg(BG).fg(FG_DIM)
 }
 
+pub const HEADING_DIM: Color = Color::Rgb(0x9a, 0x92, 0x8c);
+
 pub fn heading(focused: bool) -> Style {
-    if focused {
-        Style::new().bg(BG).fg(FG)
-    } else {
-        dim()
-    }
+    let fg = if focused { FG } else { HEADING_DIM };
+    Style::new().bg(BG).fg(fg).add_modifier(Modifier::BOLD)
 }
 
 pub fn list_selection(focused: bool) -> Style {

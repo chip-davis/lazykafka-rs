@@ -310,29 +310,49 @@ impl App {
 
     fn render(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
         tui.draw(|frame| {
-            let [header_area, breadcrumb_area, body_area] = Layout::vertical([
+            frame.render_widget(
+                ratatui::widgets::Block::new().style(Style::new().bg(crate::theme::BG)),
+                frame.area(),
+            );
+
+            let [header_area, breadcrumb_area, _gap, body_area] = Layout::vertical([
                 Constraint::Length(9), // header row count from the mockup — tune to taste
                 Constraint::Length(1),
+                Constraint::Length(2),
                 Constraint::Min(0),
             ])
             .areas(frame.area());
 
-            let _ = self.header.draw(frame, header_area);
-            let _ = self.breadcrumb.draw(frame, breadcrumb_area);
+            let _ = self.header.draw(frame, inset(header_area, 2, 2));
+            let _ = self.breadcrumb.draw(frame, inset(breadcrumb_area, 2, 2));
 
-            let [topics_area, partitions_area, records_area, detail_area] = Layout::horizontal([
+            let [
+                topics_area,
+                div1,
+                partitions_area,
+                div2,
+                records_area,
+                div3,
+                detail_area,
+            ] = Layout::horizontal([
                 Constraint::Length(24),
+                Constraint::Length(1),
                 Constraint::Length(24),
+                Constraint::Length(1),
                 Constraint::Length(36),
+                Constraint::Length(1),
                 Constraint::Fill(1),
             ])
             .areas(body_area);
+            for div in [div1, div2, div3] {
+                draw_vline(frame, div);
+            }
             // FpsCounter is an overlay and wants the full body area.
             let areas = [
-                topics_area,
-                partitions_area,
-                records_area,
-                detail_area,
+                inset(topics_area, 2, 2),
+                inset(partitions_area, 2, 2),
+                inset(records_area, 2, 2),
+                inset(detail_area, 2, 2),
                 body_area,
             ];
 
@@ -348,4 +368,25 @@ impl App {
     }
 }
 
+fn draw_vline(frame: &mut Frame, area: Rect) {
+    let style = Style::new().fg(crate::theme::FG_DIM).bg(crate::theme::BG);
+    for y in area.top()..area.bottom() {
+        frame.buffer_mut().set_string(area.x, y, "│", style);
+    }
+}
 
+fn inset_left(area: Rect, n: u16) -> Rect {
+    Rect {
+        x: area.x + n,
+        width: area.width.saturating_sub(n),
+        ..area
+    }
+}
+
+fn inset(area: Rect, left: u16, right: u16) -> Rect {
+    Rect {
+        x: area.x + left,
+        width: area.width.saturating_sub(left + right),
+        ..area
+    }
+}

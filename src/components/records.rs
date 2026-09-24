@@ -351,7 +351,7 @@ impl Component for Records {
             String::new()
         };
         let title_style = if self.live {
-            theme::accent().bg(theme::BG)
+            theme::accent().bg(theme::BG).add_modifier(Modifier::BOLD)
         } else {
             theme::heading(self.focused)
         };
