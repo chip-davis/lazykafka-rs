@@ -77,20 +77,58 @@ pub fn assign_partitions(
     Ok(())
 }
 
+fn to_record<M: Message>(msg: &M) -> Record {
+    Record {
+        partition: msg.partition(),
+        offset: msg.offset(),
+        key: msg.key().map(|k| String::from_utf8_lossy(k).into_owned()),
+        payload: msg
+            .payload()
+            .map(|p| String::from_utf8_lossy(p).into_owned())
+            .unwrap_or_default(),
+    }
+}
+
+pub fn fetch_records(
+    cfg: &KafkaConfig,
+    topic: &str,
+    starts: &[(i32, i64)],
+    limit: usize,
+) -> color_eyre::Result<Vec<Record>> {
+    let consumer = build_consumer(cfg)?;
+    let mut tpl = TopicPartitionList::new();
+    for &(p, start) in starts {
+        let offset = if start < 0 {
+            Offset::Beginning
+        } else {
+            Offset::Offset(start)
+        };
+        tpl.add_partition_offset(topic, p, offset)?;
+    }
+    consumer.assign(&tpl)?;
+
+    let mut out = Vec::with_capacity(limit);
+    while out.len() < limit {
+        let wait = if out.is_empty() {
+            TIMEOUT
+        } else {
+            Duration::from_millis(500)
+        };
+        match consumer.poll(wait) {
+            Some(Ok(msg)) => out.push(to_record(&msg)),
+            Some(Err(e)) => return Err(e.into()),
+            None => break,
+        }
+    }
+    out.sort_by_key(|r| (r.offset, r.partition));
+    Ok(out)
+}
+
 pub async fn tail(consumer: StreamConsumer, tx: UnboundedSender<Action>, topic: String) {
     loop {
         match consumer.recv().await {
             Ok(msg) => {
-                let record = Record {
-                    partition: msg.partition(),
-                    offset: msg.offset(),
-                    key: msg.key().map(|k| String::from_utf8_lossy(k).into_owned()),
-                    payload: msg
-                        .payload()
-                        .map(|p| String::from_utf8_lossy(p).into_owned())
-                        .unwrap_or_default(),
-                };
-                let _ = tx.send(Action::RecordReceived(topic.clone(), record));
+                let _ = tx.send(Action::RecordReceived(topic.clone(), to_record(&msg)));
             }
             Err(e) => {
                 let _ = tx.send(Action::Error(e.to_string()));

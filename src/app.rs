@@ -8,7 +8,7 @@ use crate::{
     action::Action,
     components::{
         Component, fps::FpsCounter, header::Header, home::Home, partitions::Partitions,
-        records::Records,
+        record_detail::RecordDetail, records, records::Records,
     },
     config::Config,
     kafka,
@@ -52,6 +52,7 @@ impl App {
                 Box::new(Home::new()),
                 Box::new(Partitions::new()),
                 Box::new(Records::new()),
+                Box::new(RecordDetail::new()),
                 Box::new(FpsCounter::default()),
             ],
             focus: 0,
@@ -227,7 +228,30 @@ impl App {
                         }
                     });
                 }
-                Action::PartitionSelected(ref topic, ref ids) => {
+                Action::PartitionSelected(..) | Action::TailStopped => {
+                    if let Some(h) = self.tail_handle.take() {
+                        h.abort();
+                    }
+                }
+                Action::LoadNextRecords(ref topic, ref ids, ref starts) => {
+                    let tx = self.action_tx.clone();
+                    let topic = topic.clone();
+                    let ids = ids.clone();
+                    let starts = starts.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let cfg = kafka::admin_client_config();
+                        match kafka::fetch_records(&cfg, &topic, &starts, records::PAGE) {
+                            Ok(records) => {
+                                let has_more = records.len() == records::PAGE;
+                                tx.send(Action::HistoricalRecordsLoaded(
+                                    topic, ids, records, has_more,
+                                ))
+                            }
+                            Err(err) => tx.send(Action::Error(err.to_string())),
+                        }
+                    });
+                }
+                Action::TailSelected(ref topic, ref ids) => {
                     if let Some(h) = self.tail_handle.take() {
                         h.abort();
                     }
@@ -275,15 +299,21 @@ impl App {
 
             let _ = self.header.draw(frame, header_area);
 
-            let [topics_area, partitions_area, records_area, rest_area] = Layout::horizontal([
-                Constraint::Length(30),
-                Constraint::Length(30),
-                Constraint::Length(40),
+            let [topics_area, partitions_area, records_area, detail_area] = Layout::horizontal([
+                Constraint::Length(24),
+                Constraint::Length(24),
+                Constraint::Length(36),
                 Constraint::Fill(1),
             ])
             .areas(body_area);
-            // components[3] = FpsCounter (overlay, wants full body)
-            let areas = [topics_area, partitions_area, records_area, rest_area];
+            // FpsCounter is an overlay and wants the full body area.
+            let areas = [
+                topics_area,
+                partitions_area,
+                records_area,
+                detail_area,
+                body_area,
+            ];
 
             for (component, area) in self.components.iter_mut().zip(areas) {
                 if let Err(err) = component.draw(frame, area) {

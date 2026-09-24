@@ -10,6 +10,7 @@ pub mod fps;
 pub mod header;
 pub mod home;
 pub mod partitions;
+pub mod record_detail;
 pub mod records;
 
 /// `Component` is a trait that represents a visual and interactive element of the user interface.
