@@ -281,16 +281,16 @@ impl Component for Records {
             }
             Action::HistoricalRecordsLoaded(topic, ids, records, has_more) => {
                 let key = (topic, ids);
-                if self.key.as_ref() != Some(&key) {
-                    return Ok(None);
-                }
-                let page = self.pages.entry(key).or_default();
+                let page = self.pages.entry(key.clone()).or_default();
                 page.records = records.into();
                 page.has_more = has_more;
                 page.loading = false;
-                self.sel = 0;
-                self.off = 0;
-                return Ok(self.selection());
+                if self.key.as_ref() == Some(&key) {
+                    self.sel = 0;
+                    self.off = 0;
+                    return Ok(self.selection());
+                }
+                return Ok(None);
             }
             Action::RecordReceived(topic, rec) => {
                 if !self.live || self.paused {
