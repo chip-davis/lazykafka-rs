@@ -3,11 +3,14 @@ use std::time::Duration;
 const TIMEOUT: Duration = Duration::from_secs(5);
 
 use rdkafka::{
-    ClientConfig,
+    ClientConfig, Message, Offset, TopicPartitionList,
     admin::AdminClient,
     client::DefaultClientContext,
-    consumer::{BaseConsumer, Consumer, DefaultConsumerContext},
+    consumer::{BaseConsumer, Consumer, DefaultConsumerContext, StreamConsumer},
 };
+use tokio::sync::mpsc::UnboundedSender;
+
+use crate::action::Action;
 
 pub struct KafkaConfig {
     config: ClientConfig,
@@ -21,9 +24,19 @@ pub struct Partition {
     pub high: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Record {
+    pub partition: i32,
+    pub offset: i64,
+    pub key: Option<String>,
+    pub payload: String,
+}
+
 pub fn admin_client_config() -> KafkaConfig {
     let mut config = ClientConfig::new();
     config.set("bootstrap.servers", "localhost:9092");
+    // StreamConsumer::assign requires a group.id even though we never subscribe/coordinate.
+    config.set("group.id", "lazykafka-rs");
     KafkaConfig { config }
 }
 
@@ -43,6 +56,48 @@ pub fn build_consumer(
     cfg: &KafkaConfig,
 ) -> color_eyre::Result<BaseConsumer<DefaultConsumerContext>> {
     Ok(cfg.config.create()?)
+}
+
+pub fn build_stream_consumer(
+    cfg: &KafkaConfig,
+) -> color_eyre::Result<StreamConsumer<DefaultConsumerContext>> {
+    Ok(cfg.config.create()?)
+}
+
+pub fn assign_partitions(
+    consumer: &StreamConsumer,
+    topic: &str,
+    partitions: &[i32],
+) -> color_eyre::Result<()> {
+    let mut tpl = TopicPartitionList::new();
+    for &p in partitions {
+        tpl.add_partition_offset(topic, p, Offset::End)?;
+    }
+    consumer.assign(&tpl)?;
+    Ok(())
+}
+
+pub async fn tail(consumer: StreamConsumer, tx: UnboundedSender<Action>, topic: String) {
+    loop {
+        match consumer.recv().await {
+            Ok(msg) => {
+                let record = Record {
+                    partition: msg.partition(),
+                    offset: msg.offset(),
+                    key: msg.key().map(|k| String::from_utf8_lossy(k).into_owned()),
+                    payload: msg
+                        .payload()
+                        .map(|p| String::from_utf8_lossy(p).into_owned())
+                        .unwrap_or_default(),
+                };
+                let _ = tx.send(Action::RecordReceived(topic.clone(), record));
+            }
+            Err(e) => {
+                let _ = tx.send(Action::Error(e.to_string()));
+                break;
+            }
+        }
+    }
 }
 
 pub async fn list_topics(consumer: &BaseConsumer) -> color_eyre::Result<Vec<Topic>> {

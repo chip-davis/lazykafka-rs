@@ -1,20 +1,23 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::prelude::*;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::{debug, info};
 
 use crate::{
     action::Action,
-    components::{Component, fps::FpsCounter, header::Header, home::Home, partitions::Partitions},
+    components::{
+        Component, fps::FpsCounter, header::Header, home::Home, partitions::Partitions,
+        records::Records,
+    },
     config::Config,
     kafka,
     tui::{Event, Tui},
 };
 
-// components[0] = Home (topics), components[1] = Partitions — the navigable miller columns.
-// FpsCounter (components[2]) is an overlay, never focused.
-const NAV_COLUMNS: usize = 2;
+// components[0] = Home (topics), [1] = Partitions, [2] = Records — the navigable miller columns.
+// FpsCounter (components[3]) is an overlay, never focused.
+const NAV_COLUMNS: usize = 3;
 
 pub struct App {
     config: Config,
@@ -29,6 +32,7 @@ pub struct App {
     last_tick_key_events: Vec<KeyEvent>,
     action_tx: mpsc::UnboundedSender<Action>,
     action_rx: mpsc::UnboundedReceiver<Action>,
+    tail_handle: Option<JoinHandle<()>>,
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -47,6 +51,7 @@ impl App {
             components: vec![
                 Box::new(Home::new()),
                 Box::new(Partitions::new()),
+                Box::new(Records::new()),
                 Box::new(FpsCounter::default()),
             ],
             focus: 0,
@@ -57,6 +62,7 @@ impl App {
             last_tick_key_events: Vec::new(),
             action_tx,
             action_rx,
+            tail_handle: None,
         })
     }
 
@@ -221,6 +227,27 @@ impl App {
                         }
                     });
                 }
+                Action::PartitionSelected(ref topic, ref ids) => {
+                    if let Some(h) = self.tail_handle.take() {
+                        h.abort();
+                    }
+                    let tx = self.action_tx.clone();
+                    let topic = topic.clone();
+                    let ids = ids.clone();
+                    self.tail_handle = Some(tokio::spawn(async move {
+                        let cfg = kafka::admin_client_config();
+                        let result = async {
+                            let consumer = kafka::build_stream_consumer(&cfg)?;
+                            kafka::assign_partitions(&consumer, &topic, &ids)?;
+                            kafka::tail(consumer, tx.clone(), topic).await;
+                            Ok::<_, color_eyre::Report>(())
+                        }
+                        .await;
+                        if let Err(err) = result {
+                            let _ = tx.send(Action::Error(err.to_string()));
+                        }
+                    }))
+                }
                 _ => {}
             }
             for component in self.components.iter_mut() {
@@ -248,14 +275,15 @@ impl App {
 
             let _ = self.header.draw(frame, header_area);
 
-            let [topics_area, partitions_area, rest_area] = Layout::horizontal([
+            let [topics_area, partitions_area, records_area, rest_area] = Layout::horizontal([
                 Constraint::Length(30),
                 Constraint::Length(30),
+                Constraint::Length(40),
                 Constraint::Fill(1),
             ])
             .areas(body_area);
-            // components[0] = Home (topics), [1] = Partitions, [2] = FpsCounter (overlay, wants full body)
-            let areas = [topics_area, partitions_area, rest_area];
+            // components[3] = FpsCounter (overlay, wants full body)
+            let areas = [topics_area, partitions_area, records_area, rest_area];
 
             for (component, area) in self.components.iter_mut().zip(areas) {
                 if let Err(err) = component.draw(frame, area) {

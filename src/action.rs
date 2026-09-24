@@ -17,4 +17,6 @@ pub enum Action {
     TopicsLoaded(Vec<crate::kafka::Topic>),
     TopicSelected(String),
     PartitionsLoaded(String, Vec<kafka::Partition>),
+    PartitionSelected(String, Vec<i32>),
+    RecordReceived(String, kafka::Record),
 }

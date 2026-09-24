@@ -19,6 +19,14 @@ impl Partitions {
     pub fn new() -> Self {
         Self::default()
     }
+    fn emit_selection(&self) -> Option<Action> {
+        let topic = self.current_topic.clone()?;
+        let ids = match self.state.selected()? {
+            0 => self.partitions.iter().map(|p| p.id).collect(),
+            i => vec![self.partitions.get(i - 1)?.id],
+        };
+        Some(Action::PartitionSelected(topic, ids))
+    }
 }
 
 impl Component for Partitions {
@@ -31,7 +39,7 @@ impl Component for Partitions {
             KeyCode::Up | KeyCode::Char('k') => self.state.select_previous(),
             _ => {}
         }
-        Ok(None)
+        Ok(self.emit_selection())
     }
 
     fn set_focused(&mut self, focused: bool) {
@@ -60,6 +68,7 @@ impl Component for Partitions {
                     self.partitions = parts;
                     if !self.partitions.is_empty() {
                         self.state.select_first();
+                        return Ok(self.emit_selection());
                     }
                 }
             }
@@ -88,15 +97,18 @@ impl Component for Partitions {
         ])
         .areas(area);
 
+        let total = self.partitions.len() + 1; // +1 for the ALL row
+
         frame.render_widget(
-            Paragraph::new(format!("PARTITIONS {}", self.partitions.len())).style(dim_bg),
+            Paragraph::new(format!("PARTITIONS {total}")).style(dim_bg),
             title,
         );
 
-        let items = self
-            .partitions
-            .iter()
-            .map(|p| format!("p{} {}..{}", p.id, p.low, p.high));
+        let items = std::iter::once("ALL".to_string()).chain(
+            self.partitions
+                .iter()
+                .map(|p| format!("p{} {}..{}", p.id, p.low, p.high)),
+        );
         frame.render_stateful_widget(
             List::new(items).highlight_style(sel_style),
             list_area,
@@ -104,10 +116,7 @@ impl Component for Partitions {
         );
 
         let pos = self.state.selected().map_or(0, |i| i + 1);
-        frame.render_widget(
-            Paragraph::new(format!("{pos}/{}", self.partitions.len())),
-            footer,
-        );
+        frame.render_widget(Paragraph::new(format!("{pos}/{total}")), footer);
 
         Ok(())
     }
