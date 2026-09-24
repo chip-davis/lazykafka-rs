@@ -1,6 +1,9 @@
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    time::{Duration, Instant},
+};
 
-use crate::{action::Action, components::Component, config::Config, kafka};
+use crate::{action::Action, components::Component, config::Config, kafka, theme};
 use crossterm::event::KeyCode;
 use ratatui::{prelude::*, widgets::*};
 use tokio::sync::mpsc::UnboundedSender;
@@ -55,6 +58,7 @@ pub struct Records {
     sel: usize,
     off: usize,
     visible: usize,
+    recent: VecDeque<Instant>,
 }
 
 impl Records {
@@ -164,6 +168,14 @@ impl Records {
         }
         let starts = page.back.pop()?;
         self.request(starts, true)
+    }
+
+    fn rate(&mut self) -> usize {
+        let cutoff = Instant::now() - Duration::from_secs(1);
+        while self.recent.front().is_some_and(|t| *t < cutoff) {
+            self.recent.pop_front();
+        }
+        self.recent.len()
     }
 }
 
@@ -305,6 +317,7 @@ impl Component for Records {
                     page.records.pop_front();
                 }
                 self.sel = page.records.len() - 1;
+                self.recent.push_back(Instant::now());
                 return Ok(self.selection());
             }
             _ => {}
@@ -313,17 +326,8 @@ impl Component for Records {
     }
 
     fn draw(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
-        let dim_bg = Style::new()
-            .bg(Color::Rgb(0x24, 0x1c, 0x1a))
-            .fg(Color::Rgb(0x8a, 0x80, 0x7d));
-        let sel_style = if self.focused {
-            Style::new()
-                .bg(Color::Rgb(0x3a, 0x2a, 0x26))
-                .fg(Color::Rgb(0xe8, 0xe4, 0xe2))
-                .add_modifier(Modifier::BOLD)
-        } else {
-            dim_bg
-        };
+        let dim_bg = theme::dim();
+        let sel_style = theme::accent_selection(self.focused);
 
         let [title, list_area, footer] = Layout::vertical([
             Constraint::Length(1),
@@ -335,14 +339,24 @@ impl Component for Records {
         let loading = self.page().is_some_and(|p| p.loading);
         let tag = match (self.live, self.paused, loading) {
             (_, _, true) => " [LOADING]",
-            (true, true, _) => " [LIVE PAUSED]",
-            (true, false, _) => " [LIVE]",
+            (true, true, _) => " [PAUSED]",
+            (true, false, _) => " [TAILING]",
             _ => "",
         };
         let len = self.len();
         let pos = if len == 0 { 0 } else { self.sel + 1 };
+        let rate = if self.live && !self.paused {
+            format!("  {}/s", self.rate())
+        } else {
+            String::new()
+        };
+        let title_style = if self.live {
+            theme::accent().bg(theme::BG)
+        } else {
+            theme::heading(self.focused)
+        };
         frame.render_widget(
-            Paragraph::new(format!("RECORDS {pos}/{len}{tag}")).style(dim_bg),
+            Paragraph::new(format!("RECORDS {pos}/{len}{tag}{rate}")).style(title_style),
             title,
         );
 
@@ -368,7 +382,9 @@ impl Component for Records {
             window_state.select(Some(self.sel - self.off));
         }
         frame.render_stateful_widget(
-            List::new(window.collect::<Vec<_>>()).highlight_style(sel_style),
+            List::new(window.collect::<Vec<_>>())
+                .style(dim_bg)
+                .highlight_style(sel_style),
             list_area,
             &mut window_state,
         );
@@ -377,7 +393,7 @@ impl Component for Records {
             Some(buf) => format!("offset> {buf}_"),
             None => self.position(),
         };
-        frame.render_widget(Paragraph::new(status), footer);
+        frame.render_widget(Paragraph::new(status).style(dim_bg), footer);
 
         Ok(())
     }
@@ -455,12 +471,16 @@ mod tests {
                     leader: 0,
                     low: 10,
                     high: 9_000,
+                    isr: 3,
+                    replicas: 3,
                 },
                 kafka::Partition {
                     id: 1,
                     leader: 0,
                     low: 0,
                     high: 100,
+                    isr: 3,
+                    replicas: 3,
                 },
             ],
         );
@@ -499,12 +519,16 @@ mod tests {
                     leader: 0,
                     low: 0,
                     high: 62_326,
+                    isr: 3,
+                    replicas: 3,
                 },
                 kafka::Partition {
                     id: 1,
                     leader: 0,
                     low: 0,
                     high: 100,
+                    isr: 3,
+                    replicas: 3,
                 },
             ],
         );

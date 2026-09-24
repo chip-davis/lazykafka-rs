@@ -3,7 +3,7 @@ use ratatui::{prelude::*, widgets::*};
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
-use crate::{action::Action, config::Config, kafka};
+use crate::{action::Action, config::Config, kafka, theme};
 
 #[derive(Default)]
 pub struct Partitions {
@@ -26,6 +26,13 @@ impl Partitions {
             i => vec![self.partitions.get(i - 1)?.id],
         };
         Some(Action::PartitionSelected(topic, ids))
+    }
+
+    fn under_replicated(&self) -> usize {
+        self.partitions
+            .iter()
+            .filter(|p| p.isr < p.replicas)
+            .count()
     }
 }
 
@@ -78,17 +85,8 @@ impl Component for Partitions {
     }
 
     fn draw(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
-        let dim_bg = Style::new()
-            .bg(Color::Rgb(0x24, 0x1c, 0x1a))
-            .fg(Color::Rgb(0x8a, 0x80, 0x7d));
-        let sel_style = if self.focused {
-            Style::new()
-                .bg(Color::Rgb(0x3a, 0x2a, 0x26))
-                .fg(Color::Rgb(0xe8, 0xe4, 0xe2))
-                .add_modifier(Modifier::BOLD)
-        } else {
-            dim_bg
-        };
+        let dim_bg = theme::dim();
+        let sel_style = theme::list_selection(self.focused);
 
         let [title, list_area, footer] = Layout::vertical([
             Constraint::Length(1),
@@ -100,23 +98,39 @@ impl Component for Partitions {
         let total = self.partitions.len() + 1; // +1 for the ALL row
 
         frame.render_widget(
-            Paragraph::new(format!("PARTITIONS {total}")).style(dim_bg),
+            Paragraph::new(format!("PARTITIONS {total}")).style(theme::heading(self.focused)),
             title,
         );
 
-        let items = std::iter::once("ALL".to_string()).chain(
-            self.partitions
-                .iter()
-                .map(|p| format!("p{} {}..{}", p.id, p.low, p.high)),
+        let items = std::iter::once(ListItem::new("ALL").style(dim_bg)).chain(
+            self.partitions.iter().map(|p| {
+                let warn = if p.isr < p.replicas { " !" } else { "" };
+                let line = Line::from(vec![
+                    Span::styled(format!("p{} {}..{}", p.id, p.low, p.high), dim_bg),
+                    Span::styled(warn, theme::accent()),
+                ]);
+                ListItem::new(line).style(dim_bg)
+            }),
         );
         frame.render_stateful_widget(
-            List::new(items).highlight_style(sel_style),
+            List::new(items).style(dim_bg).highlight_style(sel_style),
             list_area,
             &mut self.state,
         );
 
         let pos = self.state.selected().map_or(0, |i| i + 1);
-        frame.render_widget(Paragraph::new(format!("{pos}/{total}")), footer);
+        let under = self.under_replicated();
+        let isr_summary = self
+            .partitions
+            .iter()
+            .map(|p| (p.isr, p.replicas))
+            .min_by_key(|&(isr, _)| isr)
+            .map(|(isr, replicas)| format!("  isr {isr}/{replicas} — {under}/{total}"))
+            .unwrap_or_default();
+        frame.render_widget(
+            Paragraph::new(format!("{pos}/{total}{isr_summary}")).style(dim_bg),
+            footer,
+        );
 
         Ok(())
     }

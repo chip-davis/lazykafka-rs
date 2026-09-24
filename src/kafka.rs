@@ -22,6 +22,8 @@ pub struct Partition {
     pub leader: i32,
     pub low: i64,
     pub high: i64,
+    pub isr: usize,
+    pub replicas: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -169,6 +171,8 @@ pub async fn list_partitions(
             leader: p.leader(),
             low,
             high,
+            isr: p.isr().len(),
+            replicas: p.replicas().len(),
         });
     }
     partitions.sort_by_key(|p| p.id);

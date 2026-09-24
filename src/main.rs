@@ -12,6 +12,7 @@ mod errors;
 mod highlight;
 mod kafka;
 mod logging;
+mod theme;
 mod tui;
 
 #[tokio::main]

@@ -1,6 +1,6 @@
 use ratatui::{prelude::*, widgets::Paragraph};
 
-use crate::components::Component;
+use crate::{components::Component, theme};
 
 pub struct Header;
 
@@ -11,11 +11,12 @@ impl Component for Header {
         area: ratatui::prelude::Rect,
     ) -> color_eyre::Result<()> {
         let dim = Style::new().fg(Color::DarkGray);
+        let accent = theme::accent();
 
         let info_lines = vec![
             Line::from(vec![
                 Span::styled("cluster  ", dim),
-                Span::raw("prod-eu-west-1-hardcoded"),
+                Span::styled(theme::CLUSTER, accent),
             ]),
             Line::from(vec![
                 Span::styled("brokers  ", dim),
@@ -41,7 +42,6 @@ impl Component for Header {
 
         frame.render_widget(Paragraph::new(info_lines), info);
 
-        let accent = Style::new().fg(Color::Rgb(0xec, 0x30, 0x13));
         let key = |k: &str, label: &str| {
             Line::from(vec![
                 Span::styled(format!("<{k}> "), accent),

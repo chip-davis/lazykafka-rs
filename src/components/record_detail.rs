@@ -1,7 +1,7 @@
 use crossterm::event::KeyCode;
 use ratatui::{prelude::*, widgets::*};
 
-use crate::{action::Action, components::Component, config::Config, highlight, kafka};
+use crate::{action::Action, components::Component, config::Config, highlight, kafka, theme};
 
 #[derive(Default)]
 pub struct RecordDetail {
@@ -142,7 +142,8 @@ impl Component for RecordDetail {
     }
 
     fn draw(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
-        let muted = Style::default().fg(Color::DarkGray);
+        let muted = theme::dim();
+        let value = Style::new().bg(theme::BG).fg(theme::FG);
         let [title, meta, body, footer] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(3),
@@ -151,12 +152,10 @@ impl Component for RecordDetail {
         ])
         .areas(area);
 
-        let heading = if self.focused {
-            Style::default().fg(Color::Rgb(0xe8, 0xe4, 0xe2))
-        } else {
-            muted
-        };
-        frame.render_widget(Paragraph::new("MESSAGE DETAILS").style(heading), title);
+        frame.render_widget(
+            Paragraph::new("PREVIEW").style(theme::heading(self.focused)),
+            title,
+        );
 
         let Some(id) = self.record.as_ref().map(|r| (r.partition, r.offset)) else {
             self.lines.clear();
@@ -185,12 +184,16 @@ impl Component for RecordDetail {
                 Paragraph::new(vec![
                     Line::from(vec![
                         Span::styled("Partition: ", muted),
-                        Span::raw(id.0.to_string()),
+                        Span::styled(id.0.to_string(), value),
                         Span::styled("  Offset: ", muted),
-                        Span::raw(id.1.to_string()),
+                        Span::styled(id.1.to_string(), value),
                     ]),
-                    Line::from(vec![Span::styled("Key: ", muted), Span::raw(key)]),
-                ]),
+                    Line::from(vec![
+                        Span::styled("Key: ", muted),
+                        Span::styled(key, value),
+                    ]),
+                ])
+                .style(muted),
                 meta,
             );
         }
@@ -205,7 +208,7 @@ impl Component for RecordDetail {
             .take(self.visible)
             .cloned()
             .collect();
-        frame.render_widget(Paragraph::new(window), body);
+        frame.render_widget(Paragraph::new(window).style(muted), body);
 
         let total = self.lines.len();
         let from = if total == 0 { 0 } else { self.scroll + 1 };

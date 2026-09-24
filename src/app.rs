@@ -7,8 +7,8 @@ use tracing::{debug, info};
 use crate::{
     action::Action,
     components::{
-        Component, fps::FpsCounter, header::Header, home::Home, partitions::Partitions,
-        record_detail::RecordDetail, records, records::Records,
+        Component, breadcrumb::Breadcrumb, fps::FpsCounter, header::Header, home::Home,
+        partitions::Partitions, record_detail::RecordDetail, records, records::Records,
     },
     config::Config,
     kafka,
@@ -20,6 +20,7 @@ const NAV_COLUMNS: usize = 4;
 pub struct App {
     config: Config,
     header: Header,
+    breadcrumb: Breadcrumb,
     tick_rate: f64,
     frame_rate: f64,
     components: Vec<Box<dyn Component>>,
@@ -47,6 +48,7 @@ impl App {
             tick_rate,
             frame_rate,
             header: Header,
+            breadcrumb: Breadcrumb::new(),
             components: vec![
                 Box::new(Home::new()),
                 Box::new(Partitions::new()),
@@ -288,6 +290,9 @@ impl App {
                 }
                 _ => {}
             }
+            if let Some(action) = self.breadcrumb.update(action.clone())? {
+                self.action_tx.send(action)?;
+            }
             for component in self.components.iter_mut() {
                 if let Some(action) = component.update(action.clone())? {
                     self.action_tx.send(action)?
@@ -305,13 +310,15 @@ impl App {
 
     fn render(&mut self, tui: &mut Tui) -> color_eyre::Result<()> {
         tui.draw(|frame| {
-            let [header_area, body_area] = Layout::vertical([
+            let [header_area, breadcrumb_area, body_area] = Layout::vertical([
                 Constraint::Length(9), // header row count from the mockup — tune to taste
+                Constraint::Length(1),
                 Constraint::Min(0),
             ])
             .areas(frame.area());
 
             let _ = self.header.draw(frame, header_area);
+            let _ = self.breadcrumb.draw(frame, breadcrumb_area);
 
             let [topics_area, partitions_area, records_area, detail_area] = Layout::horizontal([
                 Constraint::Length(24),
@@ -340,3 +347,5 @@ impl App {
         Ok(())
     }
 }
+
+

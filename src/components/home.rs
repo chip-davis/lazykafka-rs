@@ -3,7 +3,7 @@ use ratatui::{prelude::*, widgets::*};
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
-use crate::{action::Action, config::Config, kafka};
+use crate::{action::Action, config::Config, kafka, theme};
 
 #[derive(Default)]
 pub struct Home {
@@ -73,17 +73,9 @@ impl Component for Home {
     }
 
     fn draw(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
-        let dim_bg = Style::new()
-            .bg(Color::Rgb(0x24, 0x1c, 0x1a))
-            .fg(Color::Rgb(0x8a, 0x80, 0x7d));
-        let sel_style = if self.focused {
-            Style::new()
-                .bg(Color::Rgb(0x3a, 0x2a, 0x26))
-                .fg(Color::Rgb(0xe8, 0xe4, 0xe2))
-                .add_modifier(Modifier::BOLD)
-        } else {
-            dim_bg
-        };
+        let dim_bg = theme::dim();
+        let internal_bg = Style::new().bg(theme::BG).fg(Color::Rgb(0x45, 0x41, 0x3e));
+        let sel_style = theme::list_selection(self.focused);
 
         let width = self.topics.iter().map(|t| t.name.len()).max().unwrap_or(10) as u16 + 8; // +8 for " NNp" suffix/padding
         let [col, _rest] =
@@ -97,23 +89,27 @@ impl Component for Home {
         .areas(col);
 
         frame.render_widget(
-            Paragraph::new(format!("TOPICS {}", self.topics.len())).style(dim_bg),
+            Paragraph::new(format!("TOPICS {}", self.topics.len())).style(theme::heading(self.focused)),
             title,
         );
 
-        let items = self
-            .topics
-            .iter()
-            .map(|t| format!("{} {}p", t.name, t.partition_count));
+        let items = self.topics.iter().map(|t| {
+            let style = if t.name.starts_with('_') {
+                internal_bg
+            } else {
+                dim_bg
+            };
+            ListItem::new(format!("{} {}p", t.name, t.partition_count)).style(style)
+        });
         frame.render_stateful_widget(
-            List::new(items).highlight_style(sel_style),
+            List::new(items).style(dim_bg).highlight_style(sel_style),
             list_area,
             &mut self.state,
         );
 
         let pos = self.state.selected().map_or(0, |i| i + 1);
         frame.render_widget(
-            Paragraph::new(format!("{pos}/{}", self.topics.len())),
+            Paragraph::new(format!("{pos}/{}", self.topics.len())).style(dim_bg),
             footer,
         );
 
