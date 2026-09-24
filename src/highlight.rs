@@ -5,6 +5,7 @@ use syntect::{
     easy::HighlightLines,
     highlighting::{Theme, ThemeSet},
     parsing::{SyntaxReference, SyntaxSet},
+    util::LinesWithEndings,
 };
 
 static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
@@ -45,15 +46,19 @@ fn to_style(s: syntect::highlighting::Style) -> Style {
 
 pub fn highlight_json(text: &str, theme_name: &str) -> Vec<Vec<(String, Style)>> {
     let mut highlighter = HighlightLines::new(json_syntax(), theme(theme_name));
-    text.lines()
+    LinesWithEndings::from(text)
         .map(|line| {
             let ranges = highlighter
                 .highlight_line(line, &SYNTAX_SET)
                 .unwrap_or_default();
-            ranges
+            let mut spans: Vec<(String, Style)> = ranges
                 .into_iter()
                 .map(|(style, piece)| (piece.to_string(), to_style(style)))
-                .collect()
+                .collect();
+            if let Some((last, _)) = spans.last_mut() {
+                *last = last.trim_end_matches(['\n', '\r']).to_string();
+            }
+            spans
         })
         .collect()
 }
@@ -78,3 +83,4 @@ mod tests {
         assert_eq!(out.len(), 1);
     }
 }
+
