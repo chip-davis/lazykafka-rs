@@ -65,7 +65,7 @@ impl Component for Header {
             vec![
                 key("o", "go to offset"),
                 key("t", "tail (live)"),
-                key("space", "pause tail"),
+                key("d/u", "half page (detail)"),
                 key("q", "quit"),
             ],
         ];

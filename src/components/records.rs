@@ -324,7 +324,7 @@ impl Component for Records {
         ])
         .areas(area);
 
-        let (has_more, loading) = self.page().map_or((false, false), |p| (p.has_more, p.loading));
+        let loading = self.page().is_some_and(|p| p.loading);
         let tag = match (self.live, self.paused, loading) {
             (_, _, true) => " [LOADING]",
             (true, true, _) => " [LIVE PAUSED]",

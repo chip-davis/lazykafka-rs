@@ -31,6 +31,7 @@ pub struct App {
     action_tx: mpsc::UnboundedSender<Action>,
     action_rx: mpsc::UnboundedReceiver<Action>,
     tail_handle: Option<JoinHandle<()>>,
+    dirty: bool,
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -62,6 +63,7 @@ impl App {
             action_tx,
             action_rx,
             tail_handle: None,
+            dirty: true,
         })
     }
 
@@ -126,6 +128,9 @@ impl App {
             return Ok(());
         };
         let action_tx = self.action_tx.clone();
+        if !matches!(event, Event::Tick | Event::Render) {
+            self.dirty = true;
+        }
         match event {
             Event::Quit => action_tx.send(Action::Quit)?,
             Event::Tick => action_tx.send(Action::Tick)?,
@@ -197,6 +202,9 @@ impl App {
             if action != Action::Tick && action != Action::Render {
                 debug!("{action:?}");
             }
+            if !matches!(action, Action::Tick | Action::Render) {
+                self.dirty = true;
+            }
             match action {
                 Action::Tick => {
                     self.last_tick_key_events.drain(..);
@@ -206,7 +214,12 @@ impl App {
                 Action::Resume => self.should_suspend = false,
                 Action::ClearScreen => tui.terminal.clear()?,
                 Action::Resize(w, h) => self.handle_resize(tui, w, h)?,
-                Action::Render => self.render(tui)?,
+                Action::Render => {
+                    if self.dirty {
+                        self.render(tui)?;
+                        self.dirty = false;
+                    }
+                }
                 Action::Error(ref err) => {
                     tracing::error!(?err)
                 }
