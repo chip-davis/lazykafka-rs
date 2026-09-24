@@ -28,6 +28,12 @@ pub struct Config {
     pub keybindings: KeyBindings,
     #[serde(default)]
     pub styles: Styles,
+    #[serde(default = "default_theme")]
+    pub theme: String,
+}
+
+fn default_theme() -> String {
+    "base16-ocean.dark".to_string()
 }
 
 pub static PROJECT_NAME: LazyLock<String> =

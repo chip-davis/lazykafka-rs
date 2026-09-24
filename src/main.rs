@@ -9,6 +9,7 @@ mod cli;
 mod components;
 mod config;
 mod errors;
+mod highlight;
 mod kafka;
 mod logging;
 mod tui;

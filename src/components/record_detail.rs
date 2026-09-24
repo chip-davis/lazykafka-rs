@@ -1,13 +1,13 @@
 use crossterm::event::KeyCode;
 use ratatui::{prelude::*, widgets::*};
 
-use crate::{action::Action, components::Component, config::Config, kafka};
+use crate::{action::Action, components::Component, config::Config, highlight, kafka};
 
 #[derive(Default)]
 pub struct RecordDetail {
     config: Config,
     record: Option<kafka::Record>,
-    lines: Vec<String>,
+    lines: Vec<Line<'static>>,
     lines_for: Option<(i32, i64)>,
     scroll: usize,
     visible: usize,
@@ -26,14 +26,32 @@ impl RecordDetail {
 
 const MAX_LINES: usize = 20_000;
 
-fn format_payload(payload: &str) -> Vec<String> {
+fn format_payload(payload: &str, theme: &str) -> Vec<Line<'static>> {
     let pretty = serde_json::from_str::<serde_json::Value>(payload)
         .ok()
         .and_then(|value| serde_json::to_string_pretty(&value).ok());
+    let is_json = pretty.is_some();
     let text = pretty.as_deref().unwrap_or(payload);
-    let mut lines: Vec<String> = text.lines().take(MAX_LINES).map(str::to_string).collect();
-    if text.lines().nth(MAX_LINES).is_some() {
-        lines.push(format!("… truncated at {MAX_LINES} lines"));
+    let truncated = text.lines().nth(MAX_LINES).is_some();
+    let capped: String = text.lines().take(MAX_LINES).collect::<Vec<_>>().join("\n");
+
+    let mut lines: Vec<Line<'static>> = if is_json {
+        highlight::highlight_json(&capped, theme)
+            .into_iter()
+            .map(|spans| {
+                Line::from(
+                    spans
+                        .into_iter()
+                        .map(|(text, style)| Span::styled(text, style))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect()
+    } else {
+        capped.lines().map(|l| Line::raw(l.to_string())).collect()
+    };
+    if truncated {
+        lines.push(Line::raw(format!("… truncated at {MAX_LINES} lines")));
     }
     lines
 }
@@ -104,7 +122,7 @@ impl Component for RecordDetail {
 
         if self.lines_for != Some(id) {
             if let Some(record) = self.record.take() {
-                self.lines = format_payload(&record.payload);
+                self.lines = format_payload(&record.payload, &self.config.theme);
                 self.record = Some(record);
             }
             self.lines_for = Some(id);
@@ -135,7 +153,7 @@ impl Component for RecordDetail {
             .iter()
             .skip(self.scroll)
             .take(self.visible)
-            .map(|line| Line::raw(line.as_str()))
+            .cloned()
             .collect();
         frame.render_widget(Paragraph::new(window), body);
 
@@ -155,27 +173,41 @@ impl Component for RecordDetail {
 mod tests {
     use super::*;
 
+    fn line_text(line: &Line) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
     #[test]
     fn json_is_pretty_printed_and_plain_text_is_not() {
+        let lines = format_payload(r#"{"a":1,"b":[2,3]}"#, "base16-ocean.dark");
+        let text: Vec<String> = lines.iter().map(line_text).collect();
         assert_eq!(
-            format_payload(r#"{"a":1,"b":[2,3]}"#),
+            text,
             vec!["{", "  \"a\": 1,", "  \"b\": [", "    2,", "    3", "  ]", "}"]
         );
-        assert_eq!(format_payload("not json\nsecond"), vec!["not json", "second"]);
+        assert!(
+            lines[1].spans.len() > 1,
+            "JSON lines should carry multiple highlighted spans"
+        );
+
+        let plain = format_payload("not json\nsecond", "base16-ocean.dark");
+        let text: Vec<String> = plain.iter().map(line_text).collect();
+        assert_eq!(text, vec!["not json", "second"]);
+        assert_eq!(plain[0].spans.len(), 1, "non-JSON stays a single plain span");
     }
 
     #[test]
     fn oversized_payload_is_capped() {
         let payload = "x\n".repeat(MAX_LINES + 50);
-        let lines = format_payload(&payload);
+        let lines = format_payload(&payload, "base16-ocean.dark");
         assert_eq!(lines.len(), MAX_LINES + 1);
-        assert!(lines.last().unwrap().starts_with("… truncated"));
+        assert!(line_text(&lines[MAX_LINES]).starts_with("… truncated"));
     }
 
     #[test]
     fn scroll_clamps_to_last_screen() {
         let mut d = RecordDetail::new();
-        d.lines = (0..100).map(|i| i.to_string()).collect();
+        d.lines = (0..100).map(|i| Line::raw(i.to_string())).collect();
         d.visible = 10;
         assert_eq!(d.max_scroll(), 90);
 
