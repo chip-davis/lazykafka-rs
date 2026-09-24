@@ -224,6 +224,14 @@ impl Component for Records {
                     return Ok(None);
                 };
                 self.live = !self.live;
+                if self.live {
+                    self.sel = 0;
+                    self.off = 0;
+                    let page = self.pages.get_mut(&(topic.clone(), ids.clone())).unwrap();
+                    page.records.clear();
+                    page.back.clear();
+                }
+
                 return Ok(Some(if self.live {
                     Action::TailSelected(topic, ids)
                 } else {
@@ -344,20 +352,16 @@ impl Component for Records {
         self.off = scroll_offset(self.sel, self.off, height, len);
 
         let window = self.page().into_iter().flat_map(|p| {
-            p.records
-                .iter()
-                .skip(self.off)
-                .take(height)
-                .map(|r| {
-                    let mut line = format!("p{} @{} ", r.partition, r.offset);
-                    line.extend(
-                        r.payload
-                            .chars()
-                            .take(200)
-                            .map(|c| if c.is_control() { ' ' } else { c }),
-                    );
-                    line
-                })
+            p.records.iter().skip(self.off).take(height).map(|r| {
+                let mut line = format!("p{} @{} ", r.partition, r.offset);
+                line.extend(
+                    r.payload
+                        .chars()
+                        .take(200)
+                        .map(|c| if c.is_control() { ' ' } else { c }),
+                );
+                line
+            })
         });
         let mut window_state = ListState::default();
         if len > 0 {
@@ -478,7 +482,8 @@ mod tests {
     fn failed_page_clears_loading() {
         let mut r = setup();
         assert!(r.page().unwrap().loading);
-        r.update(Action::PageFailed("t".into(), vec![0, 1])).unwrap();
+        r.update(Action::PageFailed("t".into(), vec![0, 1]))
+            .unwrap();
         assert!(!r.page().unwrap().loading);
         assert!(r.request(r.beginning(), false).is_some());
     }
@@ -489,8 +494,18 @@ mod tests {
         r.watermarks.insert(
             "t".into(),
             vec![
-                kafka::Partition { id: 0, leader: 0, low: 0, high: 62_326 },
-                kafka::Partition { id: 1, leader: 0, low: 0, high: 100 },
+                kafka::Partition {
+                    id: 0,
+                    leader: 0,
+                    low: 0,
+                    high: 62_326,
+                },
+                kafka::Partition {
+                    id: 1,
+                    leader: 0,
+                    low: 0,
+                    high: 100,
+                },
             ],
         );
         assert_eq!(r.position(), "empty");
@@ -508,4 +523,3 @@ mod tests {
         assert_eq!(scroll_offset(0, 50, 10, 1), 0);
     }
 }
-
