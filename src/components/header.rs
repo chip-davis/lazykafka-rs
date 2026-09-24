@@ -51,24 +51,21 @@ impl Component for Header {
 
         let groups = [
             vec![
-                key("h", "up a level"),
-                key("l", "descend"),
-                key("/", "filter"),
-                key(":", "resource"),
-                key("?", "help"),
+                key("h/l", "column"),
+                key("j/k", "select"),
+                key("PgUp/PgDn", "jump"),
+                key("Home/End", "page ends"),
             ],
             vec![
-                key("p", "produce"),
-                key("e", "export"),
-                key("c", "config"),
-                key("a", "acls"),
-                key("D", "delete"),
+                key("n", "next 500"),
+                key("p", "prev 500"),
+                key("g", "first page"),
+                key("G", "last page"),
             ],
             vec![
+                key("o", "go to offset"),
+                key("t", "tail (live)"),
                 key("space", "pause tail"),
-                key("s", "seek"),
-                key("y", "copy record"),
-                key("R", "replay to…"),
                 key("q", "quit"),
             ],
         ];

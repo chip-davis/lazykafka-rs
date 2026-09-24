@@ -24,4 +24,5 @@ pub enum Action {
     HistoricalRecordsLoaded(String, Vec<i32>, Vec<kafka::Record>, bool),
     TailSelected(String, Vec<i32>),
     TailStopped,
+    PageFailed(String, Vec<i32>),
 }

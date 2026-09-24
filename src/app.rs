@@ -247,7 +247,10 @@ impl App {
                                     topic, ids, records, has_more,
                                 ))
                             }
-                            Err(err) => tx.send(Action::Error(err.to_string())),
+                            Err(err) => {
+                                let _ = tx.send(Action::PageFailed(topic, ids));
+                                tx.send(Action::Error(err.to_string()))
+                            }
                         }
                     });
                 }

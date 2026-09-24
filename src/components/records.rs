@@ -107,6 +107,30 @@ impl Records {
             .collect()
     }
 
+    fn position(&self) -> String {
+        let Some(page) = self.page() else {
+            return String::new();
+        };
+        let (Some(first), Some(last)) = (page.records.front(), page.records.back()) else {
+            return "empty".into();
+        };
+        let end = self
+            .key
+            .as_ref()
+            .and_then(|(t, _)| self.watermarks.get(t))
+            .map(|ps| {
+                ps.iter()
+                    .filter(|p| self.ids().contains(&p.id))
+                    .map(|p| p.high)
+                    .max()
+                    .unwrap_or(0)
+            });
+        match end {
+            Some(end) => format!("@{}-{} of {}", first.offset, last.offset, end - 1),
+            None => format!("@{}-{}", first.offset, last.offset),
+        }
+    }
+
     fn request(&mut self, starts: Starts, keep_back: bool) -> Option<Action> {
         let (topic, ids) = self.key.clone()?;
         let page = self.pages.get_mut(&(topic.clone(), ids.clone()))?;
@@ -228,6 +252,11 @@ impl Component for Records {
             Action::PartitionsLoaded(topic, parts) => {
                 self.watermarks.insert(topic, parts);
             }
+            Action::PageFailed(topic, ids) => {
+                if let Some(page) = self.pages.get_mut(&(topic, ids)) {
+                    page.loading = false;
+                }
+            }
             Action::PartitionSelected(topic, ids) => {
                 self.key = Some((topic, ids));
                 self.live = false;
@@ -303,8 +332,9 @@ impl Component for Records {
             _ => "",
         };
         let len = self.len();
+        let pos = if len == 0 { 0 } else { self.sel + 1 };
         frame.render_widget(
-            Paragraph::new(format!("RECORDS {len}{tag}")).style(dim_bg),
+            Paragraph::new(format!("RECORDS {pos}/{len}{tag}")).style(dim_bg),
             title,
         );
 
@@ -330,16 +360,9 @@ impl Component for Records {
             &mut window_state,
         );
 
-        let status = if let Some(buf) = &self.seek {
-            format!("offset> {buf}")
-        } else {
-            let pos = if len == 0 { 0 } else { self.sel + 1 };
-            let at = self
-                .selected_record()
-                .map_or(String::new(), |r| format!(" @{}", r.offset));
-            let page_no = self.page().map_or(0, |p| p.back.len() + 1);
-            let more = if has_more { "n" } else { "-" };
-            format!("{pos}/{len}{at} pg{page_no} [{more}/p] g G o t")
+        let status = match &self.seek {
+            Some(buf) => format!("offset> {buf}_"),
+            None => self.position(),
         };
         frame.render_widget(Paragraph::new(status), footer);
 
@@ -351,7 +374,7 @@ impl Component for Records {
 mod tests {
     use super::*;
 
-    fn rec(partition: i32, offset: i64) -> kafka::Record {
+    pub(super) fn rec(partition: i32, offset: i64) -> kafka::Record {
         kafka::Record {
             partition,
             offset,
@@ -443,6 +466,30 @@ mod tests {
     }
 
     #[test]
+    fn failed_page_clears_loading() {
+        let mut r = setup();
+        assert!(r.page().unwrap().loading);
+        r.update(Action::PageFailed("t".into(), vec![0, 1])).unwrap();
+        assert!(!r.page().unwrap().loading);
+        assert!(r.request(r.beginning(), false).is_some());
+    }
+
+    #[test]
+    fn position_reports_offset_span_against_watermark() {
+        let mut r = setup();
+        r.watermarks.insert(
+            "t".into(),
+            vec![
+                kafka::Partition { id: 0, leader: 0, low: 0, high: 62_326 },
+                kafka::Partition { id: 1, leader: 0, low: 0, high: 100 },
+            ],
+        );
+        assert_eq!(r.position(), "empty");
+        loaded(&mut r, vec![rec(0, 61_826), rec(0, 62_325)], false);
+        assert_eq!(r.position(), "@61826-62325 of 62325");
+    }
+
+    #[test]
     fn scroll_offset_follows_selection() {
         assert_eq!(scroll_offset(0, 0, 10, 0), 0);
         assert_eq!(scroll_offset(5, 0, 10, 8500), 0);
@@ -452,3 +499,4 @@ mod tests {
         assert_eq!(scroll_offset(0, 50, 10, 1), 0);
     }
 }
+
