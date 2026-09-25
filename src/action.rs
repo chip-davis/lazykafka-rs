@@ -25,4 +25,5 @@ pub enum Action {
     TailSelected(String, Vec<i32>),
     TailStopped,
     PageFailed(String, Vec<i32>),
+    ToggleDownload,
 }

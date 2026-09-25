@@ -7,8 +7,8 @@ use tracing::{debug, info};
 use crate::{
     action::Action,
     components::{
-        Component, breadcrumb::Breadcrumb, fps::FpsCounter, header::Header, home::Home,
-        partitions::Partitions, record_detail::RecordDetail, records, records::Records,
+        Component, breadcrumb::Breadcrumb, download::Download, fps::FpsCounter, header::Header,
+        home::Home, partitions::Partitions, record_detail::RecordDetail, records, records::Records,
     },
     config::Config,
     kafka,
@@ -21,6 +21,7 @@ pub struct App {
     config: Config,
     header: Header,
     breadcrumb: Breadcrumb,
+    download: Download,
     tick_rate: f64,
     frame_rate: f64,
     components: Vec<Box<dyn Component>>,
@@ -49,6 +50,7 @@ impl App {
             frame_rate,
             header: Header,
             breadcrumb: Breadcrumb::new(),
+            download: Download::new(),
             components: vec![
                 Box::new(Home::new()),
                 Box::new(Partitions::new()),
@@ -267,6 +269,9 @@ impl App {
                         }
                     });
                 }
+                Action::ToggleDownload => {
+                    self.download.show_popup = !self.download.show_popup;
+                }
                 Action::TailSelected(ref topic, ref ids) => {
                     if let Some(h) = self.tail_handle.take() {
                         h.abort();
@@ -363,6 +368,8 @@ impl App {
                         .send(Action::Error(format!("Failed to draw: {:?}", err)));
                 }
             }
+
+            let _ = self.download.draw(frame, frame.area());
         })?;
         Ok(())
     }
