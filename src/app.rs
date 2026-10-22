@@ -77,6 +77,8 @@ impl App {
             .tick_rate(self.tick_rate)
             .frame_rate(self.frame_rate);
         tui.enter()?;
+        crate::splash::draw(&mut tui)?;
+        let splash_until = tokio::time::Instant::now() + crate::splash::DURATION;
 
         for component in self.components.iter_mut() {
             component.register_action_handler(self.action_tx.clone())?;
@@ -109,6 +111,8 @@ impl App {
                 Err(err) => kafka_action_tx.send(Action::Error(err.to_string())),
             }
         });
+        tokio::time::sleep_until(splash_until).await;
+        self.dirty = true;
         loop {
             self.handle_events(&mut tui).await?;
             self.handle_actions(&mut tui)?;

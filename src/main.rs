@@ -12,6 +12,7 @@ mod errors;
 mod highlight;
 mod kafka;
 mod logging;
+mod splash;
 mod theme;
 mod tui;
 
